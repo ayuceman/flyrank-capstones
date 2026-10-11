@@ -42,6 +42,13 @@ curl -s localhost:3000/usage -H "X-API-Key: $KEY"
 Send the first request again with the same `Idempotency-Key`: same response,
 `Idempotent-Replayed: true`, and `/usage` does not move.
 
+### One-command check
+
+With the stack up, `bash scripts/smoke.sh` creates its own tenant and walks
+through probes 1, 2, 4 and 5 against the live service (idempotent replay,
+byte-identical responses, the 1,000/1,001 boundary, pricing totals, forged
+webhook), printing ok/FAIL per step. Probe 3 needs real Stripe, see below.
+
 ### Without Docker
 
 Point `DATABASE_URL` at any Postgres 14+ and run `npm install && npm start`.
