@@ -1,0 +1,23 @@
+{
+  "name": "flyrank-capstone-metering-billing",
+  "version": "1.0.0",
+  "description": "Usage metering, quota enforcement, cost calculation and Stripe test-mode subscriptions for a multi-tenant SaaS",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "dev": "node --watch --env-file=.env src/index.js",
+    "migrate": "node --env-file=.env src/db/migrate.js",
+    "seed": "node --env-file=.env scripts/seed.js",
+    "test": "node --env-file=.env --test --test-concurrency=1 test/*.test.js"
+  },
+  "author": "Ayushman Bajracharya",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^18.0.7",
+    "express": "^4.22.3",
+    "pg": "^8.23.1",
+    "stripe": "^23.0.0",
+    "zod": "^4.6.5"
+  }
+}
