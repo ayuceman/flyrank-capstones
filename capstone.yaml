@@ -1,0 +1,12 @@
+# Evaluator entry point for this repo. The capstone itself lives in metering-billing/;
+# every command below runs from inside that folder.
+name: flyrank-capstones
+capstone: usage-metering-billing-engine
+path: metering-billing
+
+run: cd metering-billing && docker compose up --build
+seed: cd metering-billing && docker compose exec app node scripts/seed.js
+test: cd metering-billing && npm test
+
+base_url: http://localhost:3000
+manifest: metering-billing/capstone.yaml      # the full manifest, endpoints, evidence, buildlog
