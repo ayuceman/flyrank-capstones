@@ -98,7 +98,11 @@ export async function record({ tenant, idempotencyKey, request, buildResponse })
       }
 
       await enqueue(client, "check_usage_alerts", { tenant_id: tenant.id, period });
-      return { body, events };
+
+      // return what was stored, not what was built: replays read the jsonb column, and
+      // jsonb normalises key order, so this keeps the first response byte-identical to every replay
+      const stored = await findExisting(client, tenant.id, idempotencyKey);
+      return { body: stored.response, events };
     });
 
     if (result.replayedRow) return replay(result.replayedRow, requestHash);

@@ -1,0 +1,24 @@
+# Read by the evaluator. One command to run, one to seed, one to test.
+name: flyrank-capstone-metering-billing
+track: backend-ai-engineering
+capstone: usage-metering-billing-engine
+
+run: docker compose up --build          # app + postgres; app runs migrations on boot
+seed: docker compose exec app node scripts/seed.js    # two tenants, prints their API keys once
+test: npm test                           # needs DATABASE_URL pointing at a postgres (see README)
+
+base_url: http://localhost:3000
+
+endpoints:
+  - GET  /health
+  - GET  /plans
+  - POST /tenants                  # X-Admin-Key
+  - POST /generate                 # X-API-Key + Idempotency-Key   <- the billable action (probe 1, 2, 5)
+  - GET  /usage                    # X-API-Key                     <- rollup (probe 2, 3, 5)
+  - POST /billing/checkout         # X-API-Key                     <- Stripe test-mode Checkout (probe 3)
+  - POST /webhooks/stripe          # Stripe-Signature              <- verified + deduplicated (probe 3, 4)
+
+env_example: .env.example
+evidence: EVIDENCE.md
+buildlog: BUILDLOG.md
+design: DESIGN.md

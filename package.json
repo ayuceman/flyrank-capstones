@@ -9,7 +9,7 @@
     "dev": "node --watch --env-file=.env src/index.js",
     "migrate": "node --env-file=.env src/db/migrate.js",
     "seed": "node --env-file=.env scripts/seed.js",
-    "test": "node --test --test-concurrency=1 test/"
+    "test": "node --env-file=.env --test --test-concurrency=1 test/*.test.js"
   },
   "author": "Ayushman Bajracharya",
   "license": "MIT",

@@ -70,9 +70,19 @@ async function onCheckoutCompleted(client, session) {
   const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
   const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
 
+  // a Stripe customer belongs to exactly one tenant. If this one is already attached
+  // elsewhere, keep the plan change but don't steal the customer id (and say so).
+  let customerToSet = customerId || null;
+  if (customerToSet) {
+    const owner = await client.query("SELECT id FROM tenants WHERE stripe_customer_id = $1 AND id <> $2", [customerToSet, tenantId]);
+    if (owner.rowCount > 0) {
+      console.warn(JSON.stringify({ event: "stripe_customer_conflict", customer: customerToSet, tenant: tenantId, owned_by: owner.rows[0].id }));
+      customerToSet = null;
+    }
+  }
   const upd = await client.query(
     "UPDATE tenants SET plan_id = $2, subscription_status = 'active', stripe_customer_id = COALESCE($3, stripe_customer_id) WHERE id = $1",
-    [tenantId, planId, customerId || null]
+    [tenantId, planId, customerToSet]
   );
   if (upd.rowCount === 0) return "ignored"; // unknown tenant: nothing to update
   if (subId) {
