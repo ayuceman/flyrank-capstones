@@ -5,7 +5,43 @@ below is pasted from real runs on 2026-10-11, against PostgreSQL 16. The test
 suite (`npm test`) is 20 tests, each named after the probe or requirement it
 proves, so the test output is most of the evidence.
 
-## Full test run
+## On my machine: `bash scripts/smoke.sh` against the Docker stack
+
+Run on 2026-10-11 on macOS with `docker compose up --build`:
+
+```
+0. Service
+  ok   GET /health reachable at http://localhost:3000
+1. Create a tenant
+  ok   tenant created, key starts with mk_
+  ok   GET /usage shows plan free, 0 used
+2. Probe 1 - idempotency
+  ok   first call: Idempotent-Replayed: false
+  ok   retry:      Idempotent-Replayed: true
+  ok   retry body is byte-identical to the first
+  ok   only ONE api call metered after two requests
+  ok   same key + different body -> 422
+3. Probe 5 - pricing
+  ok   tokens priced at 25,000 micro$ (2500 + 2500 + 5000 + 15000)
+  ok   plus 2,000 for the call = 27,000 micro$
+  ok   GET /usage shows $0.027000
+4. Validation
+  ok   no Idempotency-Key -> 400
+  ok   negative tokens -> 400
+  ok   bad JSON -> 400
+  ok   no API key -> 401
+5. Probe 2 - quota boundary (sending 999 calls, ~10-20s)
+  ok   1,000 of 1,000 used (the 1,000th call was allowed)
+  ok   call 1,001 -> 402 upgrade_required
+  {"error":"upgrade_required","message":"Free plan allows 1000 API calls per month; 1000 used, 1 requested. Upgrade to Pro for a higher limit.","type":"api_call","used":1000,"limit":1000,"requested":1,"remaining":0}
+  ok   rejected call recorded nothing
+6. Probe 4 - forged webhook
+  ok   bad signature -> 400
+  ok   missing signature -> 400
+Result: 20 passed, 0 failed
+```
+
+## Full test run (`npm test`, real Postgres)
 
 ```
 $ npm test
@@ -145,9 +181,56 @@ the tenant id in `metadata` and `client_reference_id`. The end-to-end
 click-through with a test card was run on my machine with the Stripe CLI
 forwarding webhooks:
 
+Run on my MacBook on 2026-10-11 with `docker compose up`, the Stripe CLI
+forwarding to the app, and a real test-mode Checkout paid with card 4242 4242 4242 4242.
+
+Before:
+
 ```
-STRIPE_CHECKOUT_TRANSCRIPT
+$ curl -s localhost:3000/usage -H "X-API-Key: $KEY"
+{"tenant_id":"35b3434f-b6a1-484d-bfd9-5bc8989f5b17","period":"2026-10",...,"plan":{"id":"free","subscription_status":"none"},"api_calls":{"used":0,"limit":1000,"remaining":1000},"ai_tokens":{"used":0,"limit":100000,"remaining":100000},...}
+
+$ curl -s -X POST localhost:3000/billing/checkout -H "X-API-Key: $KEY"
+{"id":"cs_test_a1FBCVXB9KONmt0UIcXVCLISUALp2a4efwuFeepjALuWn8y1keI60SPmua","url":"https://checkout.stripe.com/c/pay/cs_test_a1FBCV..."}
 ```
+
+Paid in the browser. Stripe's own record of the session (from `stripe events resend`):
+`"status": "complete"`, `"payment_status": "paid"`, `"mode": "subscription"`,
+`"customer": "cus_VQ9x5N2yKGfR4X"`, `"subscription": "sub_1UPJddDPaAkAJj20coM6rDFy"`,
+`"metadata": {"plan_id": "pro", "tenant_id": "35b3434f-b6a1-484d-bfd9-5bc8989f5b17"}`.
+(The test price I created in the dashboard happened to be AED 119/month rather than
+USD 29; the app doesn't care what Stripe charges, it only mirrors the plan.)
+
+`stripe listen` window (signing secret redacted):
+
+```
+> Ready! You are using Stripe API Version [2026-02-25.clover]. Your webhook signing secret is whsec_**** (^C to quit)
+2026-10-11 14:08:53   --> checkout.session.completed [evt_1UPJdeDPaAkAJj20JdZjTcPM]
+2026-10-11 14:08:53  <--  [200] POST http://localhost:3000/webhooks/stripe [evt_1UPJdeDPaAkAJj20JdZjTcPM]
+2026-10-11 14:08:55   --> checkout.session.completed [evt_1UPJdeDPaAkAJj20JdZjTcPM]     <- replayed on purpose
+2026-10-11 14:08:55  <--  [200] POST http://localhost:3000/webhooks/stripe [evt_1UPJdeDPaAkAJj20JdZjTcPM]
+```
+
+App log for those two deliveries - processed once, the replay recognised and ignored:
+
+```
+$ docker compose logs app | grep stripe_webhook | tail -2
+app-1  | {"event":"stripe_webhook","id":"evt_1UPJdeDPaAkAJj20JdZjTcPM","type":"checkout.session.completed","status":"processed","detail":"tenant 35b3434f-b6a1-484d-bfd9-5bc8989f5b17 -> pro (active)"}
+app-1  | {"event":"stripe_webhook","id":"evt_1UPJdeDPaAkAJj20JdZjTcPM","type":"checkout.session.completed","status":"duplicate"}
+```
+
+After:
+
+```
+$ curl -s localhost:3000/usage -H "X-API-Key: $KEY"
+{"tenant_id":"35b3434f-b6a1-484d-bfd9-5bc8989f5b17","period":"2026-10",...,"plan":{"id":"pro","subscription_status":"active"},"api_calls":{"used":0,"limit":50000,"remaining":50000},"ai_tokens":{"used":0,"limit":5000000,"remaining":5000000},...}
+```
+
+One thing I got wrong the first time and want to record: my first `stripe listen`
+was started without `--forward-to`, so events showed up in the CLI but never
+reached the app and the tenant stayed on free. Restarting the listener with the
+forward flag and replaying the stored event fixed it, which is also a nice
+demonstration of why the event id, not the delivery, is what gets deduplicated.
 
 **[x] Webhooks verify signatures, ignore duplicate events, and update tenant plan/status.**
 
